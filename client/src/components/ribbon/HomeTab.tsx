@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Type,
   Bold,
@@ -35,6 +35,74 @@ export const HomeTab: React.FC = () => {
   } = useCanvasStore();
 
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+
+  const [elements, setElements] = useState<any[]>([]);
+
+  useEffect(() => {
+    setElements(crdtBridge.getAllElements());
+    return crdtBridge.subscribe(() => {
+      setElements(crdtBridge.getAllElements());
+    });
+  }, []);
+
+  const selectedTextElements = elements.filter(
+    (el) => selectedIds.includes(el.id) && el.type === 'text'
+  );
+  const primaryText = selectedTextElements[0] || null;
+
+  const handleFontFamilyChange = (fontFamily: string) => {
+    document.execCommand('fontName', false, fontFamily);
+    for (const el of selectedTextElements) {
+      crdtBridge.updateElement(el.id, { fontFamily });
+    }
+  };
+
+  const handleFontSizeChange = (fontSize: number) => {
+    for (const el of selectedTextElements) {
+      crdtBridge.updateElement(el.id, { fontSize });
+    }
+  };
+
+  const handleToggleBold = () => {
+    document.execCommand('bold', false);
+    const newBold = !primaryText?.bold;
+    for (const el of selectedTextElements) {
+      crdtBridge.updateElement(el.id, { bold: newBold });
+    }
+  };
+
+  const handleToggleItalic = () => {
+    document.execCommand('italic', false);
+    const newItalic = !primaryText?.italic;
+    for (const el of selectedTextElements) {
+      crdtBridge.updateElement(el.id, { italic: newItalic });
+    }
+  };
+
+  const handleToggleUnderline = () => {
+    document.execCommand('underline', false);
+    const newUnderline = !primaryText?.underline;
+    for (const el of selectedTextElements) {
+      crdtBridge.updateElement(el.id, { underline: newUnderline });
+    }
+  };
+
+  const handleToggleStrike = () => {
+    document.execCommand('strikeThrough', false);
+    const newStrike = !primaryText?.strike;
+    for (const el of selectedTextElements) {
+      crdtBridge.updateElement(el.id, { strike: newStrike });
+    }
+  };
+
+  const handleAlign = (align: 'left' | 'center' | 'right') => {
+    if (align === 'left') document.execCommand('justifyLeft', false);
+    if (align === 'center') document.execCommand('justifyCenter', false);
+    if (align === 'right') document.execCommand('justifyRight', false);
+    for (const el of selectedTextElements) {
+      crdtBridge.updateElement(el.id, { align });
+    }
+  };
 
   const handleCreateTag = (type: TagType, label: string) => {
     const id = `tag-${Date.now()}`;
@@ -107,38 +175,89 @@ export const HomeTab: React.FC = () => {
       {/* Font & Style Quick Formatters */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', borderLeft: '1px solid #e2e8f0', paddingLeft: '8px' }}>
         <select
-          defaultValue="Inter, sans-serif"
+          value={primaryText?.fontFamily || 'Inter, sans-serif'}
+          onChange={(e) => handleFontFamilyChange(e.target.value)}
+          title="Font Family"
           style={{ padding: '4px 6px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
         >
           <option value="Inter, sans-serif">Segoe UI / Inter</option>
           <option value="Georgia, serif">Georgia</option>
           <option value="Courier New, monospace">Consolas / Code</option>
           <option value="'Comic Sans MS', cursive">Comic / Casual</option>
+          <option value="Arial, sans-serif">Arial</option>
+          <option value="'Times New Roman', serif">Times New Roman</option>
         </select>
 
         <select
-          defaultValue={16}
+          value={primaryText?.fontSize || 16}
+          onChange={(e) => handleFontSizeChange(Number(e.target.value))}
+          title="Font Size"
           style={{ padding: '4px 6px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
         >
           <option value={12}>12 pt</option>
           <option value={14}>14 pt</option>
-          <option value={16}>16 pt</option>
+          <option value={16}>16 pt (Normal)</option>
           <option value={20}>20 pt (H3)</option>
           <option value={28}>28 pt (H2)</option>
           <option value={36}>36 pt (H1)</option>
+          <option value={48}>48 pt (Title)</option>
         </select>
 
         <div style={{ display: 'flex', gap: '2px' }}>
-          <button title="Bold" style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+          <button
+            title="Bold (Ctrl+B)"
+            onClick={handleToggleBold}
+            style={{
+              padding: '4px 8px',
+              border: primaryText?.bold ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+              borderRadius: '4px',
+              background: primaryText?.bold ? '#dbeafe' : '#fff',
+              color: primaryText?.bold ? '#2563eb' : 'inherit',
+              cursor: 'pointer',
+            }}
+          >
             <Bold size={14} />
           </button>
-          <button title="Italic" style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+          <button
+            title="Italic (Ctrl+I)"
+            onClick={handleToggleItalic}
+            style={{
+              padding: '4px 8px',
+              border: primaryText?.italic ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+              borderRadius: '4px',
+              background: primaryText?.italic ? '#dbeafe' : '#fff',
+              color: primaryText?.italic ? '#2563eb' : 'inherit',
+              cursor: 'pointer',
+            }}
+          >
             <Italic size={14} />
           </button>
-          <button title="Underline" style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+          <button
+            title="Underline (Ctrl+U)"
+            onClick={handleToggleUnderline}
+            style={{
+              padding: '4px 8px',
+              border: primaryText?.underline ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+              borderRadius: '4px',
+              background: primaryText?.underline ? '#dbeafe' : '#fff',
+              color: primaryText?.underline ? '#2563eb' : 'inherit',
+              cursor: 'pointer',
+            }}
+          >
             <Underline size={14} />
           </button>
-          <button title="Strikethrough" style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+          <button
+            title="Strikethrough"
+            onClick={handleToggleStrike}
+            style={{
+              padding: '4px 8px',
+              border: primaryText?.strike ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+              borderRadius: '4px',
+              background: primaryText?.strike ? '#dbeafe' : '#fff',
+              color: primaryText?.strike ? '#2563eb' : 'inherit',
+              cursor: 'pointer',
+            }}
+          >
             <Strikethrough size={14} />
           </button>
         </div>
@@ -146,19 +265,60 @@ export const HomeTab: React.FC = () => {
 
       {/* Paragraph & List alignment */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '2px', borderLeft: '1px solid #e2e8f0', paddingLeft: '8px' }}>
-        <button title="Align Left" style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+        <button
+          title="Align Left"
+          onClick={() => handleAlign('left')}
+          style={{
+            padding: '4px 6px',
+            border: primaryText?.align === 'left' || !primaryText?.align ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+            borderRadius: '4px',
+            background: primaryText?.align === 'left' || !primaryText?.align ? '#dbeafe' : '#fff',
+            color: primaryText?.align === 'left' || !primaryText?.align ? '#2563eb' : 'inherit',
+            cursor: 'pointer',
+          }}
+        >
           <AlignLeft size={14} />
         </button>
-        <button title="Align Center" style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+        <button
+          title="Align Center"
+          onClick={() => handleAlign('center')}
+          style={{
+            padding: '4px 6px',
+            border: primaryText?.align === 'center' ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+            borderRadius: '4px',
+            background: primaryText?.align === 'center' ? '#dbeafe' : '#fff',
+            color: primaryText?.align === 'center' ? '#2563eb' : 'inherit',
+            cursor: 'pointer',
+          }}
+        >
           <AlignCenter size={14} />
         </button>
-        <button title="Align Right" style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+        <button
+          title="Align Right"
+          onClick={() => handleAlign('right')}
+          style={{
+            padding: '4px 6px',
+            border: primaryText?.align === 'right' ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+            borderRadius: '4px',
+            background: primaryText?.align === 'right' ? '#dbeafe' : '#fff',
+            color: primaryText?.align === 'right' ? '#2563eb' : 'inherit',
+            cursor: 'pointer',
+          }}
+        >
           <AlignRight size={14} />
         </button>
-        <button title="Bullet List" style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+        <button
+          title="Bullet List"
+          onClick={() => document.execCommand('insertUnorderedList', false)}
+          style={{ padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}
+        >
           <List size={14} />
         </button>
-        <button title="Numbered List" style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}>
+        <button
+          title="Numbered List"
+          onClick={() => document.execCommand('insertOrderedList', false)}
+          style={{ padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}
+        >
           <ListOrdered size={14} />
         </button>
       </div>

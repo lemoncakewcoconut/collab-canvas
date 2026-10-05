@@ -15,7 +15,7 @@ import { uploadFileResumable } from '../../services/uploadService.js';
 import { STICKY_COLORS } from '@collabcanvas/shared';
 
 export const InsertTab: React.FC = () => {
-  const { setActiveTool } = useCanvasStore();
+  const { setActiveTool, setSelectedIds } = useCanvasStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +53,8 @@ export const InsertTab: React.FC = () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    setSelectedIds([id]);
+    setActiveTool('select');
   };
 
   // Insert Sticky Note
@@ -73,6 +75,8 @@ export const InsertTab: React.FC = () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    setSelectedIds([id]);
+    setActiveTool('select');
   };
 
   // Insert Equation
@@ -91,6 +95,8 @@ export const InsertTab: React.FC = () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    setSelectedIds([id]);
+    setActiveTool('select');
   };
 
   // Upload Picture / Attachment via 25 MB chunked uploader
@@ -122,6 +128,8 @@ export const InsertTab: React.FC = () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
+      setSelectedIds([id]);
+      setActiveTool('select');
 
       setUploadStatus(null);
     } catch (err: any) {

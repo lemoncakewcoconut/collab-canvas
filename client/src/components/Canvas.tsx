@@ -225,6 +225,10 @@ export const Canvas: React.FC = () => {
 
   // Pointer event handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (_) {}
+
     const rect = e.currentTarget.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
@@ -330,11 +334,11 @@ export const Canvas: React.FC = () => {
       crdtBridge.addElement({
         id,
         type: 'text',
-        x: world.x,
-        y: world.y,
-        width: 250,
-        height: 60,
-        content: '<p>Click to write notes...</p>',
+        x: Math.round(world.x),
+        y: Math.round(world.y),
+        width: 280,
+        height: 80,
+        content: '',
         fontSize: 16,
         fontFamily: 'Inter, sans-serif',
         color: penColor || '#0f172a',
@@ -354,8 +358,8 @@ export const Canvas: React.FC = () => {
       crdtBridge.addElement({
         id,
         type: 'sticky',
-        x: world.x,
-        y: world.y,
+        x: Math.round(world.x),
+        y: Math.round(world.y),
         width: 200,
         height: 180,
         text: 'New Note',
@@ -488,7 +492,12 @@ export const Canvas: React.FC = () => {
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e?: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
     isPanningRef.current = false;
     isDraggingSelectedRef.current = false;
 
@@ -587,13 +596,12 @@ export const Canvas: React.FC = () => {
 
     // 4. Finalize Add Space Tool
     if (spaceDragStartRef.current !== null) {
-      const startY = spaceDragStartRef.current;
       spaceDragStartRef.current = null;
     }
   };
 
   // Zoom with Mouse Wheel or Trackpad Pinch
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+  const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
       // Zoom
@@ -604,6 +612,38 @@ export const Canvas: React.FC = () => {
     } else {
       // Pan
       setPan(panX - e.deltaX, panY - e.deltaY);
+    }
+  };
+
+  // OneNote Double-Click anywhere on blank canvas creates a rich text note
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (activeTool === 'select') {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+      const world = screenToWorld(screenX, screenY, panX, panY, zoom);
+
+      const clicked = hitTestElement(world);
+      if (!clicked) {
+        const id = `text-${Date.now()}`;
+        const zIndex = crdtBridge.getHighestZIndex();
+        crdtBridge.addElement({
+          id,
+          type: 'text',
+          x: Math.round(world.x),
+          y: Math.round(world.y),
+          width: 280,
+          height: 80,
+          content: '',
+          fontSize: 16,
+          fontFamily: 'Inter, sans-serif',
+          color: penColor || '#0f172a',
+          zIndex,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+        setSelectedIds([id]);
+      }
     }
   };
 
@@ -644,12 +684,21 @@ export const Canvas: React.FC = () => {
   };
 
   return (
-    <div ref={containerRef} className="canvas-container">
+    <div
+      ref={containerRef}
+      className="canvas-container"
+      onWheel={handleWheel}
+      style={{ cursor: getCursorStyle(activeTool, isSpacePressedRef.current) }}
+    >
       {/* Base Canvas: Scene elements, strokes, Rough.js shapes, grid */}
       <canvas
         ref={baseCanvasRef}
         className="canvas-layer"
-        style={{ zIndex: 1 }}
+        style={{ zIndex: 1, cursor: getCursorStyle(activeTool, isSpacePressedRef.current) }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onDoubleClick={handleDoubleClick}
       />
 
       {/* DOM Overlays: Text, Stickies, Tables, Equations, Audio */}
@@ -659,11 +708,7 @@ export const Canvas: React.FC = () => {
       <canvas
         ref={overlayCanvasRef}
         className="canvas-layer"
-        style={{ zIndex: 30, cursor: getCursorStyle(activeTool, isSpacePressedRef.current) }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onWheel={handleWheel}
+        style={{ zIndex: 30, pointerEvents: 'none' }}
       />
     </div>
   );
