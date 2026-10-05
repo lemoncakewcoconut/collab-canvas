@@ -16,13 +16,21 @@ export interface UploadProgress {
 }
 
 /**
- * Computes SHA-256 hash using browser native Web Crypto API
+ * Computes SHA-256 hash using browser native Web Crypto API when available (HTTPS or localhost).
+ * In non-secure contexts (e.g. HTTP over LAN IP), returns undefined and leaves hash generation to the server.
  */
-export async function computeFileSha256(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+export async function computeFileSha256(file: File): Promise<string | undefined> {
+  try {
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (err) {
+    console.warn('Web Crypto subtle not available in this context, server will compute SHA-256:', err);
+  }
+  return undefined;
 }
 
 /**
@@ -37,7 +45,7 @@ export async function uploadFileResumable(
     throw new Error(`File ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB) exceeds 25 MB limit.`);
   }
 
-  // 1. Calculate SHA-256 for integrity and instant deduplication
+  // 1. Calculate SHA-256 if supported in current browser context
   const sha256 = await computeFileSha256(file);
 
   // 2. Initialize upload session
