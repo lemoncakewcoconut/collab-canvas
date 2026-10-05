@@ -256,16 +256,28 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
+  private getDeterministicSeed(id: string): number {
+    let hash = 2166136261;
+    for (let i = 0; i < id.length; i++) {
+      hash ^= id.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) || 1;
+  }
+
   private renderShape(ctx: CanvasRenderingContext2D, shape: ShapeElement, _zoom: number): void {
     if (!this.roughCanvas) return;
     const rc = this.roughCanvas;
 
+    const seed = this.getDeterministicSeed(shape.id);
     const options = {
       stroke: shape.strokeColor,
       strokeWidth: shape.strokeWidth,
       fill: shape.fillColor !== 'transparent' ? shape.fillColor : undefined,
       fillStyle: 'solid',
       roughness: shape.roughness,
+      seed,
+      disableMultiStroke: shape.roughness === 0,
     };
 
     const { x, y, width, height, shapeType } = shape;
@@ -387,21 +399,74 @@ export class CanvasRenderer {
   // --- Specialized 2D and 3D Shapes ---
 
   private renderArrow(rc: RoughCanvas, x1: number, y1: number, x2: number, y2: number, options: any): void {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 2) return;
+
     rc.line(x1, y1, x2, y2, options);
-    const angle = Math.atan2(y2 - y1, x2 - x1);
-    const headLen = 16;
-    rc.line(x2, y2, x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6), options);
-    rc.line(x2, y2, x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6), options);
+    const angle = Math.atan2(dy, dx);
+    const headLen = Math.min(dist * 0.4, Math.max(16, (options.strokeWidth || 2) * 4));
+    const seed = options.seed || 1;
+
+    rc.line(
+      x2,
+      y2,
+      x2 - headLen * Math.cos(angle - Math.PI / 6),
+      y2 - headLen * Math.sin(angle - Math.PI / 6),
+      { ...options, seed: seed + 10 }
+    );
+    rc.line(
+      x2,
+      y2,
+      x2 - headLen * Math.cos(angle + Math.PI / 6),
+      y2 - headLen * Math.sin(angle + Math.PI / 6),
+      { ...options, seed: seed + 20 }
+    );
   }
 
   private renderDoubleArrow(rc: RoughCanvas, x1: number, y1: number, x2: number, y2: number, options: any): void {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 4) return;
+
     rc.line(x1, y1, x2, y2, options);
-    const angle = Math.atan2(y2 - y1, x2 - x1);
-    const headLen = 16;
-    rc.line(x2, y2, x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6), options);
-    rc.line(x2, y2, x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6), options);
-    rc.line(x1, y1, x1 + headLen * Math.cos(angle - Math.PI / 6), y1 + headLen * Math.sin(angle - Math.PI / 6), options);
-    rc.line(x1, y1, x1 + headLen * Math.cos(angle + Math.PI / 6), y1 + headLen * Math.sin(angle + Math.PI / 6), options);
+    const angle = Math.atan2(dy, dx);
+    const headLen = Math.min(dist * 0.35, Math.max(16, (options.strokeWidth || 2) * 4));
+    const seed = options.seed || 1;
+
+    // End Arrowhead
+    rc.line(
+      x2,
+      y2,
+      x2 - headLen * Math.cos(angle - Math.PI / 6),
+      y2 - headLen * Math.sin(angle - Math.PI / 6),
+      { ...options, seed: seed + 10 }
+    );
+    rc.line(
+      x2,
+      y2,
+      x2 - headLen * Math.cos(angle + Math.PI / 6),
+      y2 - headLen * Math.sin(angle + Math.PI / 6),
+      { ...options, seed: seed + 20 }
+    );
+
+    // Start Arrowhead
+    rc.line(
+      x1,
+      y1,
+      x1 + headLen * Math.cos(angle - Math.PI / 6),
+      y1 + headLen * Math.sin(angle - Math.PI / 6),
+      { ...options, seed: seed + 30 }
+    );
+    rc.line(
+      x1,
+      y1,
+      x1 + headLen * Math.cos(angle + Math.PI / 6),
+      y1 + headLen * Math.sin(angle + Math.PI / 6),
+      { ...options, seed: seed + 40 }
+    );
   }
 
   private renderRegularPolygon(rc: RoughCanvas, cx: number, cy: number, r: number, sides: number, options: any): void {

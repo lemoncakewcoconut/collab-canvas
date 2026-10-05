@@ -11,7 +11,18 @@ import {
 } from '@collabcanvas/shared';
 import { useCanvasStore } from '../../state/useCanvasStore.js';
 import { crdtBridge } from '../../state/crdtBridge.js';
-import { Plus, Trash2, CheckSquare, Square, Volume2 } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  CheckSquare,
+  Square,
+  Volume2,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Maximize2,
+  Move,
+} from 'lucide-react';
 
 interface Props {
   elements: CanvasElement[];
@@ -343,25 +354,175 @@ const EquationItem: React.FC<{ element: EquationElement }> = ({ element }) => {
   );
 };
 
-// 5. Media Item (Images/Files)
+// 5. Resizable, Zoomable, Movable Media Item (Images/Files)
 const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
+  const { zoom, selectedIds, setSelectedIds } = useCanvasStore();
+  const [isHovered, setIsHovered] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [localSize, setLocalSize] = useState<{ width: number; height: number }>({
+    width: element.width || 320,
+    height: element.height || 240,
+  });
+
+  const isSelected = selectedIds.includes(element.id);
+
+  // Sync local size when element updates from CRDT
+  React.useEffect(() => {
+    if (!isResizing) {
+      setLocalSize({
+        width: element.width || 320,
+        height: element.height || 240,
+      });
+    }
+  }, [element.width, element.height, isResizing]);
+
+  // Adjust aspect ratio on image load
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    if (img.naturalWidth && img.naturalHeight) {
+      const naturalAspect = img.naturalWidth / img.naturalHeight;
+      if (!element.naturalWidth || Math.abs(element.width / (element.height || 1) - naturalAspect) > 0.4) {
+        const adjustedHeight = Math.round(element.width / naturalAspect);
+        crdtBridge.updateElement(element.id, {
+          naturalWidth: img.naturalWidth,
+          naturalHeight: img.naturalHeight,
+          height: adjustedHeight,
+        });
+      }
+    }
+  };
+
+  // Drag-to-resize pointer handler
+  const handleResizePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsResizing(true);
+    const startClientX = e.clientX;
+    const startW = localSize.width;
+    const startH = localSize.height;
+    const aspect = startW / (startH || 1);
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      const dx = (moveEv.clientX - startClientX) / zoom;
+      const newWidth = Math.max(80, Math.round(startW + dx));
+      const newHeight = Math.max(60, Math.round(newWidth / aspect));
+      setLocalSize({ width: newWidth, height: newHeight });
+    };
+
+    const onPointerUp = (upEv: PointerEvent) => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      setIsResizing(false);
+      const dx = (upEv.clientX - startClientX) / zoom;
+      const newWidth = Math.max(80, Math.round(startW + dx));
+      const newHeight = Math.max(60, Math.round(newWidth / aspect));
+      crdtBridge.updateElement(element.id, { width: newWidth, height: newHeight });
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
+
+  // Zoom scale buttons
+  const handleZoomBy = (factor: number) => {
+    const newW = Math.max(80, Math.round(element.width * factor));
+    const newH = Math.max(60, Math.round(element.height * factor));
+    crdtBridge.updateElement(element.id, { width: newW, height: newH });
+  };
+
+  const handleResetOriginal = () => {
+    const w = element.naturalWidth || 400;
+    const h = element.naturalHeight || 300;
+    crdtBridge.updateElement(element.id, { width: w, height: h });
+  };
+
+  const handleDelete = () => {
+    crdtBridge.deleteElements([element.id]);
+  };
+
   return (
     <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={(e) => {
+        e.stopPropagation();
+        setSelectedIds([element.id]);
+      }}
       style={{
-        width: `${element.width}px`,
-        height: `${element.height}px`,
-        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
-        borderRadius: '4px',
-        overflow: 'hidden',
+        width: `${localSize.width}px`,
+        height: `${localSize.height}px`,
+        boxShadow: isSelected ? '0 0 0 2px #2563EB, 0 8px 16px -2px rgba(0,0,0,0.15)' : '0 4px 6px -1px rgba(0,0,0,0.1)',
+        borderRadius: '6px',
+        position: 'relative',
         background: '#f8fafc',
         border: '1px solid #e2e8f0',
+        userSelect: 'none',
       }}
     >
+      {/* Floating Toolbar on Hover or Select */}
+      {(isHovered || isSelected) && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '-38px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            background: 'rgba(15, 23, 42, 0.9)',
+            backdropFilter: 'blur(4px)',
+            borderRadius: '20px',
+            padding: '3px 8px',
+            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.2)',
+            zIndex: 100,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => handleZoomBy(1.25)}
+            title="Make Bigger (+25%)"
+            style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: '3px', display: 'flex' }}
+          >
+            <ZoomIn size={14} />
+          </button>
+
+          <button
+            onClick={() => handleZoomBy(0.8)}
+            title="Make Smaller (-20%)"
+            style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: '3px', display: 'flex' }}
+          >
+            <ZoomOut size={14} />
+          </button>
+
+          <button
+            onClick={handleResetOriginal}
+            title="Reset Natural Size"
+            style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: '3px', display: 'flex' }}
+          >
+            <RotateCcw size={13} />
+          </button>
+
+          <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.3)', margin: '0 2px' }} />
+
+          <button
+            onClick={handleDelete}
+            title="Delete Image"
+            style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', padding: '3px', display: 'flex' }}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Image Content */}
       {element.mimeType?.startsWith('image/') ? (
         <img
           src={`/api/assets/${element.assetId}`}
           alt={element.fileName}
-          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          onLoad={handleImageLoad}
+          draggable={false}
+          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', borderRadius: '5px' }}
         />
       ) : (
         <div
@@ -395,6 +556,25 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
           </a>
         </div>
       )}
+
+      {/* Interactive Bottom-Right Corner Resize Handle */}
+      <div
+        onPointerDown={handleResizePointerDown}
+        title="Drag corner to resize image"
+        style={{
+          position: 'absolute',
+          bottom: '-6px',
+          right: '-6px',
+          width: '18px',
+          height: '18px',
+          backgroundColor: '#2563EB',
+          border: '2px solid #ffffff',
+          borderRadius: '4px',
+          cursor: 'nwse-resize',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          zIndex: 10,
+        }}
+      />
     </div>
   );
 };

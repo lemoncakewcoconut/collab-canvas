@@ -80,7 +80,9 @@ export const Canvas: React.FC = () => {
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const isSpacePressedRef = useRef(false);
 
-  // Add Space tool
+  // Selection dragging & Add Space tool
+  const isDraggingSelectedRef = useRef(false);
+  const dragLastPosRef = useRef<Point>({ x: 0, y: 0 });
   const spaceDragStartRef = useRef<number | null>(null);
 
   // Sync elements from CRDT
@@ -280,9 +282,9 @@ export const Canvas: React.FC = () => {
       return;
     }
 
-    // 2. Stroke Eraser
-    if (activeTool === 'eraser-stroke') {
-      eraseStrokeAt(world);
+    // 2. Eraser (Strokes, Shapes, Notes, Media, Tables)
+    if (activeTool === 'eraser-stroke' || activeTool === 'eraser-point') {
+      eraseElementAt(world);
       return;
     }
 
@@ -370,13 +372,18 @@ export const Canvas: React.FC = () => {
 
     // 8. Select Tool
     if (activeTool === 'select') {
-      // Hit-test on visible elements
       const clicked = hitTestElement(world);
       if (clicked) {
-        setSelectedIds([clicked.id]);
+        if (!selectedIds.includes(clicked.id)) {
+          setSelectedIds([clicked.id]);
+        }
+        isDraggingSelectedRef.current = true;
+        dragLastPosRef.current = world;
       } else {
         setSelectedIds([]);
+        isDraggingSelectedRef.current = false;
       }
+      return;
     }
   };
 
@@ -398,6 +405,17 @@ export const Canvas: React.FC = () => {
     // Panning
     if (isPanningRef.current) {
       setPan(e.clientX - panStartRef.current.x, e.clientY - panStartRef.current.y);
+      return;
+    }
+
+    // Drag selected elements (shapes, images, notes, etc.)
+    if (activeTool === 'select' && isDraggingSelectedRef.current && selectedIds.length > 0 && e.buttons === 1) {
+      const dx = world.x - dragLastPosRef.current.x;
+      const dy = world.y - dragLastPosRef.current.y;
+      if (Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3) {
+        dragLastPosRef.current = world;
+        crdtBridge.shiftElements(dx, dy, selectedIds);
+      }
       return;
     }
 
@@ -435,19 +453,31 @@ export const Canvas: React.FC = () => {
       return;
     }
 
-    // Eraser drag
-    if (activeTool === 'eraser-stroke' && e.buttons === 1) {
-      eraseStrokeAt(world);
+    // Eraser drag (strokes, shapes, notes, media, tables)
+    if ((activeTool === 'eraser-stroke' || activeTool === 'eraser-point') && e.buttons === 1) {
+      eraseElementAt(world);
       return;
     }
 
-    // Shape drag
+    // Shape drag (directional for line/arrow/double_arrow, bounded for box/ellipse/polygons)
     if (activeShapeRef.current && shapeStartRef.current) {
       const start = shapeStartRef.current;
-      activeShapeRef.current.x = Math.min(start.x, world.x);
-      activeShapeRef.current.y = Math.min(start.y, world.y);
-      activeShapeRef.current.width = Math.abs(world.x - start.x);
-      activeShapeRef.current.height = Math.abs(world.y - start.y);
+      const isLinear =
+        activeShapeRef.current.shapeType === 'line' ||
+        activeShapeRef.current.shapeType === 'arrow' ||
+        activeShapeRef.current.shapeType === 'double_arrow';
+
+      if (isLinear) {
+        activeShapeRef.current.x = start.x;
+        activeShapeRef.current.y = start.y;
+        activeShapeRef.current.width = world.x - start.x;
+        activeShapeRef.current.height = world.y - start.y;
+      } else {
+        activeShapeRef.current.x = Math.min(start.x, world.x);
+        activeShapeRef.current.y = Math.min(start.y, world.y);
+        activeShapeRef.current.width = Math.abs(world.x - start.x);
+        activeShapeRef.current.height = Math.abs(world.y - start.y);
+      }
       return;
     }
 
@@ -460,6 +490,7 @@ export const Canvas: React.FC = () => {
 
   const handlePointerUp = () => {
     isPanningRef.current = false;
+    isDraggingSelectedRef.current = false;
 
     // 1. Finalize Stroke
     if (activeStrokeRef.current) {
@@ -528,7 +559,12 @@ export const Canvas: React.FC = () => {
       const shape = activeShapeRef.current;
       activeShapeRef.current = null;
       shapeStartRef.current = null;
-      if (shape.width > 5 || shape.height > 5) {
+      const isLinear =
+        shape.shapeType === 'line' ||
+        shape.shapeType === 'arrow' ||
+        shape.shapeType === 'double_arrow';
+      const dist = Math.hypot(shape.width, shape.height);
+      if (isLinear ? dist > 6 : (shape.width > 5 || shape.height > 5)) {
         crdtBridge.addElement(shape);
       }
     }
@@ -553,7 +589,6 @@ export const Canvas: React.FC = () => {
     if (spaceDragStartRef.current !== null) {
       const startY = spaceDragStartRef.current;
       spaceDragStartRef.current = null;
-      // All items below startY get shifted by dy
     }
   };
 
@@ -572,23 +607,21 @@ export const Canvas: React.FC = () => {
     }
   };
 
-  // Erase stroke helper
-  const eraseStrokeAt = (world: Point) => {
-    const searchAABB = createAABB(world.x - 15, world.y - 15, world.x + 15, world.y + 15);
+  // Erase any element (strokes, shapes, notes, media, tables, equations, tags) touched by eraser
+  const eraseElementAt = (world: Point) => {
+    const eraserRadius = 24;
     const nearby = spatialIndex.queryVisible(panX, panY, zoom, window.innerWidth, window.innerHeight);
 
     const toDelete: string[] = [];
     for (const el of nearby) {
-      if (el.type === 'stroke') {
-        const bounds = getElementBounds(el);
-        if (
-          world.x >= bounds.minX &&
-          world.x <= bounds.maxX &&
-          world.y >= bounds.minY &&
-          world.y <= bounds.maxY
-        ) {
-          toDelete.push(el.id);
-        }
+      const bounds = getElementBounds(el);
+      if (
+        world.x + eraserRadius >= bounds.minX &&
+        world.x - eraserRadius <= bounds.maxX &&
+        world.y + eraserRadius >= bounds.minY &&
+        world.y - eraserRadius <= bounds.maxY
+      ) {
+        toDelete.push(el.id);
       }
     }
 
