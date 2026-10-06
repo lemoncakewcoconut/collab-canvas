@@ -81,10 +81,12 @@ export function getVisibleWorldBounds(
 export function zoomToFitContent(
   elements: CanvasElement[],
   screenWidth: number,
-  screenHeight: number
+  screenHeight: number,
+  topOffset: number = 130
 ): { panX: number; panY: number; zoom: number } {
+  const effectiveHeight = Math.max(200, screenHeight - topOffset);
   if (elements.length === 0) {
-    return { panX: screenWidth / 2, panY: screenHeight / 2, zoom: DEFAULT_ZOOM };
+    return { panX: screenWidth / 2, panY: topOffset + effectiveHeight / 2, zoom: DEFAULT_ZOOM };
   }
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -98,17 +100,17 @@ export function zoomToFitContent(
 
   const contentWidth = Math.max(50, maxX - minX);
   const contentHeight = Math.max(50, maxY - minY);
-  const padding = 80;
+  const padding = 60;
 
   const scaleX = (screenWidth - padding * 2) / contentWidth;
-  const scaleY = (screenHeight - padding * 2) / contentHeight;
-  const zoom = Math.min(1.5, Math.max(MIN_ZOOM, Math.min(scaleX, scaleY)));
+  const scaleY = (effectiveHeight - padding * 2) / contentHeight;
+  const zoom = Math.min(1.0, Math.max(MIN_ZOOM, Math.min(scaleX, scaleY)));
 
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
 
   const panX = screenWidth / 2 - centerX * zoom;
-  const panY = screenHeight / 2 - centerY * zoom;
+  const panY = topOffset + effectiveHeight / 2 - centerY * zoom;
 
   return { panX, panY, zoom };
 }

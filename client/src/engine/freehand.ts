@@ -16,31 +16,42 @@ export interface StrokeOptions {
  */
 export function getFreehandOutline(
   points: Point[],
-  tool: 'pen' | 'pencil' | 'highlighter',
+  tool: 'pen' | 'pencil' | 'calligraphy' | 'highlighter',
   baseSize: number
 ): number[][] {
   let options: StrokeOptions;
 
   switch (tool) {
-    case 'pen': // Ballpoint / Felt-tip
+    case 'pen': // Smooth ballpoint / felt-tip
       options = {
         size: baseSize,
-        thinning: 0.5,
-        smoothing: 0.5,
-        streamline: 0.55,
+        thinning: 0.2,
+        smoothing: 0.6,
+        streamline: 0.5,
         start: { taper: 0, cap: true },
         end: { taper: 0, cap: true },
       };
       break;
 
-    case 'pencil': // Texturized, sensitive pressure
+    case 'calligraphy': // Calligraphy Brush with dramatic pressure-sensitive taper
       options = {
-        size: baseSize,
-        thinning: 0.75,
-        smoothing: 0.35,
-        streamline: 0.3,
-        start: { taper: 5, cap: true },
-        end: { taper: 5, cap: true },
+        size: baseSize * 1.3,
+        thinning: 0.85,
+        smoothing: 0.45,
+        streamline: 0.35,
+        start: { taper: 12, cap: true },
+        end: { taper: 12, cap: true },
+      };
+      break;
+
+    case 'pencil': // Real textured graphite pencil lead (consistent lead width with natural paper friction)
+      options = {
+        size: Math.max(1.5, baseSize * 0.9),
+        thinning: 0.15,
+        smoothing: 0.3,
+        streamline: 0.25,
+        start: { taper: 0, cap: true },
+        end: { taper: 0, cap: true },
       };
       break;
 

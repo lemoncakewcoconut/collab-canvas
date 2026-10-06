@@ -30,7 +30,7 @@ export interface RenderContext {
   isDark: boolean;
   selectedIds: string[];
   remotePresences: UserPresence[];
-  activeStroke: { points: Point[]; tool: 'pen' | 'pencil' | 'highlighter'; color: string; size: number } | null;
+  activeStroke: { points: Point[]; tool: 'pen' | 'pencil' | 'calligraphy' | 'highlighter'; color: string; size: number } | null;
   activeShapePreview: ShapeElement | null;
   activeLassoPoints: Point[] | null;
   ruler: RulerState;
@@ -236,20 +236,45 @@ export class CanvasRenderer {
       points = points.filter((_, idx) => idx % 3 === 0);
     }
 
-    const outline = getFreehandOutline(points, stroke.tool, stroke.size);
-    renderStrokePath(ctx, outline);
+    if (stroke.tool === 'pencil') {
+      // Textured graphite pencil: natural matte opacity + graphite paper grain
+      ctx.globalAlpha = (stroke.opacity ?? 1.0) * 0.82;
+      const outline = getFreehandOutline(points, stroke.tool, stroke.size);
+      renderStrokePath(ctx, outline);
+
+      // Add graphite friction stipples along stroke
+      if (points.length > 2) {
+        ctx.fillStyle = stroke.color;
+        const step = Math.max(1, Math.floor(points.length / 50));
+        for (let i = 0; i < points.length; i += step) {
+          const pt = points[i];
+          const jitterX = (((Math.sin(pt.x * 12.9898 + pt.y * 78.233) * 43758.5453) % 1) - 0.5) * stroke.size * 0.6;
+          const jitterY = (((Math.cos(pt.x * 39.346 + pt.y * 11.135) * 43758.5453) % 1) - 0.5) * stroke.size * 0.6;
+          const grainR = Math.max(0.6, stroke.size * 0.22);
+          ctx.globalAlpha = (stroke.opacity ?? 1.0) * 0.45;
+          ctx.beginPath();
+          ctx.arc(pt.x + jitterX, pt.y + jitterY, grainR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    } else {
+      const outline = getFreehandOutline(points, stroke.tool, stroke.size);
+      renderStrokePath(ctx, outline);
+    }
     ctx.restore();
   }
 
   private renderLiveStroke(
     ctx: CanvasRenderingContext2D,
-    stroke: { points: Point[]; tool: 'pen' | 'pencil' | 'highlighter'; color: string; size: number }
+    stroke: { points: Point[]; tool: 'pen' | 'pencil' | 'calligraphy' | 'highlighter'; color: string; size: number }
   ): void {
     ctx.save();
     ctx.fillStyle = stroke.color;
     if (stroke.tool === 'highlighter') {
       ctx.globalCompositeOperation = 'multiply';
       ctx.globalAlpha = 0.5;
+    } else if (stroke.tool === 'pencil') {
+      ctx.globalAlpha = 0.82;
     }
     const outline = getFreehandOutline(stroke.points, stroke.tool, stroke.size);
     renderStrokePath(ctx, outline);
@@ -269,16 +294,41 @@ export class CanvasRenderer {
     if (!this.roughCanvas) return;
     const rc = this.roughCanvas;
 
+    ctx.save();
+    if (shape.angle) {
+      const cx = shape.x + shape.width / 2;
+      const cy = shape.y + shape.height / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate((shape.angle * Math.PI) / 180);
+      ctx.translate(-cx, -cy);
+    }
+
     const seed = this.getDeterministicSeed(shape.id);
-    const options = {
+    const strokeLineDash =
+      shape.strokeStyle === 'dashed' ? [8, 6] :
+      shape.strokeStyle === 'dotted' ? [3, 5] :
+      undefined;
+
+    const options: any = {
       stroke: shape.strokeColor,
       strokeWidth: shape.strokeWidth,
-      fill: shape.fillColor !== 'transparent' ? shape.fillColor : undefined,
-      fillStyle: 'solid',
-      roughness: shape.roughness,
+      fill: shape.fillColor && shape.fillColor !== 'transparent' ? shape.fillColor : undefined,
+      fillStyle: shape.fillStyle || 'solid',
+      roughness: shape.roughness ?? 0,
+      strokeLineDash,
       seed,
-      disableMultiStroke: shape.roughness === 0,
+      disableMultiStroke: (shape.roughness ?? 0) === 0,
     };
+
+    if (shape.fillStyle === 'dots') {
+      options.fillWeight = 1.5;
+    } else if (shape.fillStyle === 'hachure' || shape.fillStyle === 'cross-hatch') {
+      options.hachureGap = 6;
+      options.hachureAngle = 60;
+    } else if (shape.fillStyle === 'zigzag') {
+      options.hachureGap = 8;
+      options.zigzagOffset = 4;
+    }
 
     const { x, y, width, height, shapeType } = shape;
 
@@ -394,6 +444,7 @@ export class CanvasRenderer {
       default:
         rc.rectangle(x, y, width, height, options);
     }
+    ctx.restore();
   }
 
   // --- Specialized 2D and 3D Shapes ---
@@ -576,15 +627,24 @@ export class CanvasRenderer {
       if (!el) continue;
 
       const b = getElementBounds(el);
-      const pad = 4;
+      const pad = 6;
+      const cx = (b.minX + b.maxX) / 2;
+      const cy = (b.minY + b.maxY) / 2;
+      const angle = (el as any).angle || 0;
 
       ctx.save();
+      if (angle) {
+        ctx.translate(cx, cy);
+        ctx.rotate((angle * Math.PI) / 180);
+        ctx.translate(-cx, -cy);
+      }
+
       ctx.strokeStyle = '#2563EB';
       ctx.lineWidth = 1.5 / rc.zoom;
-      ctx.setLineDash([4 / rc.zoom, 3 / rc.zoom]);
+      ctx.setLineDash([5 / rc.zoom, 3 / rc.zoom]);
       ctx.strokeRect(b.minX - pad, b.minY - pad, b.maxX - b.minX + pad * 2, b.maxY - b.minY + pad * 2);
 
-      // Render 8 control handles
+      // Render 8 control handles (corners & edges)
       const handleSize = 8 / rc.zoom;
       ctx.fillStyle = '#FFFFFF';
       ctx.strokeStyle = '#2563EB';
@@ -592,20 +652,35 @@ export class CanvasRenderer {
       ctx.lineWidth = 1.5 / rc.zoom;
 
       const corners = [
-        [b.minX - pad, b.minY - pad],
-        [b.maxX + pad, b.minY - pad],
-        [b.minX - pad, b.maxY + pad],
-        [b.maxX + pad, b.maxY + pad],
-        [(b.minX + b.maxX) / 2, b.minY - pad],
-        [(b.minX + b.maxX) / 2, b.maxY + pad],
-        [b.minX - pad, (b.minY + b.maxY) / 2],
-        [b.maxX + pad, (b.minY + b.maxY) / 2],
+        [b.minX - pad, b.minY - pad], // NW
+        [b.maxX + pad, b.minY - pad], // NE
+        [b.minX - pad, b.maxY + pad], // SW
+        [b.maxX + pad, b.maxY + pad], // SE
+        [cx, b.minY - pad],           // N
+        [cx, b.maxY + pad],           // S
+        [b.minX - pad, cy],           // W
+        [b.maxX + pad, cy],           // E
       ];
 
       for (const [hx, hy] of corners) {
         ctx.fillRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize);
         ctx.strokeRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize);
       }
+
+      // Top Rotation Handle Stem & Node
+      const stemLen = 22 / rc.zoom;
+      const rotY = b.minY - pad - stemLen;
+      ctx.beginPath();
+      ctx.moveTo(cx, b.minY - pad);
+      ctx.lineTo(cx, rotY);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(cx, rotY, handleSize * 0.65, 0, Math.PI * 2);
+      ctx.fillStyle = '#2563EB';
+      ctx.fill();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
 
       ctx.restore();
     }
@@ -639,7 +714,7 @@ export class CanvasRenderer {
     ctx.rotate((ruler.angleDeg * Math.PI) / 180);
 
     // Semi-transparent acrylic ruler body
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
     ctx.shadowBlur = 12;
     ctx.shadowOffsetY = 6;
@@ -647,8 +722,8 @@ export class CanvasRenderer {
 
     // Border
     ctx.shadowColor = 'transparent';
-    ctx.strokeStyle = 'rgba(100, 116, 139, 0.4)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(71, 85, 105, 0.5)';
+    ctx.lineWidth = 1.5;
     ctx.strokeRect(0, 0, ruler.length, ruler.width);
 
     // Tick marks along top edge
@@ -672,10 +747,45 @@ export class CanvasRenderer {
       }
     }
 
-    // Angle indicator in center
-    ctx.fillStyle = '#0F172A';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillText(`${Math.round(ruler.angleDeg)}°`, ruler.length / 2 - 12, ruler.width / 2 + 4);
+    // Center Move Grip Pill
+    const gripW = 120;
+    const gripH = 26;
+    const gripX = (ruler.length - gripW) / 2;
+    const gripY = (ruler.width - gripH) / 2 + 6;
+    ctx.fillStyle = 'rgba(37, 99, 235, 0.12)';
+    ctx.strokeStyle = '#2563EB';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(gripX, gripY, gripW, gripH, 13);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#1D4ED8';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`✥ Move (${Math.round(ruler.angleDeg)}°)`, ruler.length / 2, gripY + 17);
+
+    // End Rotation Knobs
+    const knobRadius = 14;
+    // Left end rotate knob
+    ctx.fillStyle = '#eff6ff';
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(28, ruler.width / 2 + 6, knobRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#2563EB';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('⟲', 28, ruler.width / 2 + 10);
+
+    // Right end rotate knob
+    ctx.beginPath();
+    ctx.arc(ruler.length - 28, ruler.width / 2 + 6, knobRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#2563EB';
+    ctx.fillText('⟳', ruler.length - 28, ruler.width / 2 + 10);
 
     ctx.restore();
   }
@@ -687,7 +797,7 @@ export class CanvasRenderer {
     ctx.translate(protractor.x, protractor.y);
 
     // Semi-transparent circular protractor body
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
     ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
     ctx.shadowBlur = 14;
     ctx.beginPath();
@@ -695,7 +805,7 @@ export class CanvasRenderer {
     ctx.fill();
 
     ctx.shadowColor = 'transparent';
-    ctx.strokeStyle = 'rgba(100, 116, 139, 0.4)';
+    ctx.strokeStyle = 'rgba(71, 85, 105, 0.5)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
@@ -727,13 +837,33 @@ export class CanvasRenderer {
       }
     }
 
-    // Crosshair in center
+    // Center Crosshair & Move Grip
     ctx.strokeStyle = '#2563EB';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(-10, 0);
-    ctx.lineTo(10, 0);
-    ctx.moveTo(0, -10);
-    ctx.lineTo(0, 10);
+    ctx.moveTo(-16, 0);
+    ctx.lineTo(16, 0);
+    ctx.moveTo(0, -16);
+    ctx.lineTo(0, 16);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(37, 99, 235, 0.15)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#1d4ed8';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.fillText('MOVE', 0, 34);
+
+    // Perimeter Knob (Drag to adjust radius/angle)
+    ctx.fillStyle = '#2563EB';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(protractor.radius, 0, 7, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
 
     ctx.restore();

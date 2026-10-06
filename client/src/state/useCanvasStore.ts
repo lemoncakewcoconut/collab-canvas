@@ -33,12 +33,14 @@ export interface CanvasState {
   selectedShapeType: ShapeType;
   shapeStrokeColor: string;
   shapeFillColor: string;
+  shapeFillStyle: 'solid' | 'hachure' | 'cross-hatch' | 'dots' | 'zigzag';
   shapeStrokeWidth: number;
   shapeStrokeStyle: 'solid' | 'dashed' | 'dotted';
   shapeRoughness: number;
   setSelectedShapeType: (shape: ShapeType) => void;
   setShapeStrokeColor: (color: string) => void;
   setShapeFillColor: (color: string) => void;
+  setShapeFillStyle: (style: 'solid' | 'hachure' | 'cross-hatch' | 'dots' | 'zigzag') => void;
   setShapeStrokeWidth: (width: number) => void;
   setShapeStrokeStyle: (style: 'solid' | 'dashed' | 'dotted') => void;
   setShapeRoughness: (roughness: number) => void;
@@ -55,6 +57,7 @@ export interface CanvasState {
   setRulerPos: (pos: { x: number; y: number }) => void;
   toggleProtractor: () => void;
   setProtractorPos: (pos: { x: number; y: number }) => void;
+  setProtractorRadius: (radius: number) => void;
 
   // Viewport / Camera
   panX: number;
@@ -138,12 +141,14 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   selectedShapeType: 'rectangle',
   shapeStrokeColor: '#000000',
   shapeFillColor: 'transparent',
+  shapeFillStyle: 'solid',
   shapeStrokeWidth: 2,
   shapeStrokeStyle: 'solid',
   shapeRoughness: 1.0,
   setSelectedShapeType: (shape) => set({ selectedShapeType: shape, activeTool: 'shape' }),
   setShapeStrokeColor: (color) => set({ shapeStrokeColor: color }),
   setShapeFillColor: (color) => set({ shapeFillColor: color }),
+  setShapeFillStyle: (style) => set({ shapeFillStyle: style }),
   setShapeStrokeWidth: (width) => set({ shapeStrokeWidth: width }),
   setShapeStrokeStyle: (style) => set({ shapeStrokeStyle: style }),
   setShapeRoughness: (roughness) => set({ shapeRoughness: roughness }),
@@ -160,6 +165,7 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   setRulerPos: (pos) => set({ rulerPos: pos }),
   toggleProtractor: () => set((s) => ({ isProtractorVisible: !s.isProtractorVisible })),
   setProtractorPos: (pos) => set({ protractorPos: pos }),
+  setProtractorRadius: (radius) => set({ protractorRadius: radius }),
 
   // Viewport
   panX: 0,

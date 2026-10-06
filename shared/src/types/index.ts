@@ -21,6 +21,7 @@ export type ToolType =
   | 'lasso'
   | 'pen'
   | 'pencil'
+  | 'calligraphy'
   | 'highlighter'
   | 'eraser-stroke'
   | 'eraser-point'
@@ -63,7 +64,7 @@ export interface BaseElement {
 
 export interface StrokeElement extends BaseElement {
   type: 'stroke';
-  tool: 'pen' | 'pencil' | 'highlighter';
+  tool: 'pen' | 'pencil' | 'calligraphy' | 'highlighter';
   color: string;
   size: number;
   opacity: number;
@@ -83,6 +84,7 @@ export interface ShapeElement extends BaseElement {
   strokeWidth: number;
   strokeStyle: 'solid' | 'dashed' | 'dotted';
   roughness: number;
+  fillStyle?: 'solid' | 'hachure' | 'cross-hatch' | 'dots' | 'zigzag';
   angle?: number;
 }
 
@@ -138,6 +140,7 @@ export interface EquationElement extends BaseElement {
   width: number;
   height: number;
   latex: string;
+  result?: string;
 }
 
 export interface MediaElement extends BaseElement {
@@ -152,6 +155,7 @@ export interface MediaElement extends BaseElement {
   fileSize: number;
   naturalWidth?: number;
   naturalHeight?: number;
+  angle?: number;
   crop?: {
     x: number;
     y: number;

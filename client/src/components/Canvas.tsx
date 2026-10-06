@@ -60,6 +60,11 @@ export const Canvas: React.FC = () => {
     isProtractorVisible,
     protractorPos,
     protractorRadius,
+    setRulerPos,
+    setRulerAngleDeg,
+    setProtractorPos,
+    setProtractorRadius,
+    shapeFillStyle,
   } = useCanvasStore();
 
   const [elements, setElements] = useState<CanvasElement[]>([]);
@@ -68,7 +73,7 @@ export const Canvas: React.FC = () => {
   // In-progress interactions state
   const activeStrokeRef = useRef<{
     points: Point[];
-    tool: 'pen' | 'pencil' | 'highlighter';
+    tool: 'pen' | 'pencil' | 'calligraphy' | 'highlighter';
     color: string;
     size: number;
   } | null>(null);
@@ -79,6 +84,31 @@ export const Canvas: React.FC = () => {
   const isPanningRef = useRef(false);
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const isSpacePressedRef = useRef(false);
+
+  // Ruler & Protractor dragging
+  const rulerDragRef = useRef<{
+    mode: 'move' | 'rotate';
+    startWorld: Point;
+    startPos: { x: number; y: number };
+    startAngle: number;
+  } | null>(null);
+
+  const protractorDragRef = useRef<{
+    mode: 'move' | 'radius';
+    startWorld: Point;
+    startPos: { x: number; y: number };
+    startRadius: number;
+  } | null>(null);
+
+  // Shape Resize & Rotate
+  const shapeTransformRef = useRef<{
+    mode: 'resize' | 'rotate';
+    handle?: string;
+    shapeId: string;
+    startShape: ShapeElement;
+    startWorld: Point;
+    center: Point;
+  } | null>(null);
 
   // Selection dragging & Add Space tool
   const isDraggingSelectedRef = useRef(false);
@@ -243,8 +273,58 @@ export const Canvas: React.FC = () => {
 
     if (e.button !== 0) return; // Left click only for drawing
 
-    // 1. Inking Tools
-    if (activeTool === 'pen' || activeTool === 'pencil' || activeTool === 'highlighter') {
+    // 0a. Check Ruler Hit-test (Move body or Rotate ends)
+    if (isRulerVisible) {
+      const rad = (-rulerAngleDeg * Math.PI) / 180;
+      const dx = world.x - rulerPos.x;
+      const dy = world.y - rulerPos.y;
+      const rx = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const ry = dx * Math.sin(rad) + dy * Math.cos(rad);
+      if (rx >= 0 && rx <= 500 && ry >= 0 && ry <= 70) {
+        if (rx < 55 || rx > 445) {
+          rulerDragRef.current = {
+            mode: 'rotate',
+            startWorld: world,
+            startPos: { ...rulerPos },
+            startAngle: rulerAngleDeg,
+          };
+        } else {
+          rulerDragRef.current = {
+            mode: 'move',
+            startWorld: world,
+            startPos: { ...rulerPos },
+            startAngle: rulerAngleDeg,
+          };
+        }
+        return;
+      }
+    }
+
+    // 0b. Check Protractor Hit-test (Move center or adjust radius rim)
+    if (isProtractorVisible) {
+      const dist = Math.hypot(world.x - protractorPos.x, world.y - protractorPos.y);
+      if (dist <= protractorRadius + 20) {
+        if (dist >= protractorRadius - 28) {
+          protractorDragRef.current = {
+            mode: 'radius',
+            startWorld: world,
+            startPos: { ...protractorPos },
+            startRadius: protractorRadius,
+          };
+        } else if (dist <= 35) {
+          protractorDragRef.current = {
+            mode: 'move',
+            startWorld: world,
+            startPos: { ...protractorPos },
+            startRadius: protractorRadius,
+          };
+        }
+        if (protractorDragRef.current) return;
+      }
+    }
+
+    // 1. Inking Tools (pen, pencil, calligraphy, highlighter)
+    if (activeTool === 'pen' || activeTool === 'pencil' || activeTool === 'calligraphy' || activeTool === 'highlighter') {
       let pt: Point = {
         x: world.x,
         y: world.y,
@@ -305,9 +385,11 @@ export const Canvas: React.FC = () => {
         height: 0,
         strokeColor: shapeStrokeColor,
         fillColor: shapeFillColor,
+        fillStyle: shapeFillStyle,
         strokeWidth: shapeStrokeWidth,
         strokeStyle: shapeStrokeStyle,
         roughness: shapeRoughness,
+        angle: 0,
         zIndex: crdtBridge.getHighestZIndex(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -376,6 +458,64 @@ export const Canvas: React.FC = () => {
 
     // 8. Select Tool
     if (activeTool === 'select') {
+      // Check handles on selected shape
+      if (selectedIds.length === 1) {
+        const selected = elements.find((el) => el.id === selectedIds[0]);
+        if (selected && selected.type === 'shape') {
+          const shape = selected as ShapeElement;
+          const b = getElementBounds(shape);
+          const pad = 6;
+          const cx = (b.minX + b.maxX) / 2;
+          const cy = (b.minY + b.maxY) / 2;
+          const angle = shape.angle || 0;
+
+          // Transform world coordinates into shape's unrotated frame
+          const rad = (-angle * Math.PI) / 180;
+          const lx = (world.x - cx) * Math.cos(rad) - (world.y - cy) * Math.sin(rad) + cx;
+          const ly = (world.x - cx) * Math.sin(rad) + (world.y - cy) * Math.cos(rad) + cy;
+
+          // Check top rotation knob
+          const rotY = b.minY - pad - 22 / zoom;
+          if (Math.hypot(lx - cx, ly - rotY) <= 14 / zoom) {
+            shapeTransformRef.current = {
+              mode: 'rotate',
+              shapeId: shape.id,
+              startShape: { ...shape },
+              startWorld: world,
+              center: { x: cx, y: cy },
+            };
+            return;
+          }
+
+          // Check 8 resize handles
+          const handleTol = 10 / zoom;
+          const handles: { id: string; x: number; y: number }[] = [
+            { id: 'nw', x: b.minX - pad, y: b.minY - pad },
+            { id: 'ne', x: b.maxX + pad, y: b.minY - pad },
+            { id: 'sw', x: b.minX - pad, y: b.maxY + pad },
+            { id: 'se', x: b.maxX + pad, y: b.maxY + pad },
+            { id: 'n', x: cx, y: b.minY - pad },
+            { id: 's', x: cx, y: b.maxY + pad },
+            { id: 'w', x: b.minX - pad, y: cy },
+            { id: 'e', x: b.maxX + pad, y: cy },
+          ];
+
+          for (const h of handles) {
+            if (Math.hypot(lx - h.x, ly - h.y) <= handleTol) {
+              shapeTransformRef.current = {
+                mode: 'resize',
+                handle: h.id,
+                shapeId: shape.id,
+                startShape: { ...shape },
+                startWorld: world,
+                center: { x: cx, y: cy },
+              };
+              return;
+            }
+          }
+        }
+      }
+
       const clicked = hitTestElement(world);
       if (clicked) {
         if (!selectedIds.includes(clicked.id)) {
@@ -409,6 +549,73 @@ export const Canvas: React.FC = () => {
     // Panning
     if (isPanningRef.current) {
       setPan(e.clientX - panStartRef.current.x, e.clientY - panStartRef.current.y);
+      return;
+    }
+
+    // Ruler Dragging (Move and Rotate)
+    if (rulerDragRef.current) {
+      const { mode, startWorld, startPos, startAngle } = rulerDragRef.current;
+      if (mode === 'move') {
+        const dx = world.x - startWorld.x;
+        const dy = world.y - startWorld.y;
+        setRulerPos({ x: Math.round(startPos.x + dx), y: Math.round(startPos.y + dy) });
+      } else if (mode === 'rotate') {
+        const currentAngle = (Math.atan2(world.y - startPos.y, world.x - startPos.x) * 180) / Math.PI;
+        const initialAngle = (Math.atan2(startWorld.y - startPos.y, startWorld.x - startPos.x) * 180) / Math.PI;
+        const delta = currentAngle - initialAngle;
+        const newAngle = (startAngle + delta + 360) % 360;
+        setRulerAngleDeg(Math.round(newAngle));
+      }
+      return;
+    }
+
+    // Protractor Dragging (Move and Radius)
+    if (protractorDragRef.current) {
+      const { mode, startWorld, startPos } = protractorDragRef.current;
+      if (mode === 'move') {
+        const dx = world.x - startWorld.x;
+        const dy = world.y - startWorld.y;
+        setProtractorPos({ x: Math.round(startPos.x + dx), y: Math.round(startPos.y + dy) });
+      } else if (mode === 'radius') {
+        const r = Math.round(Math.hypot(world.x - startPos.x, world.y - startPos.y));
+        setProtractorRadius(Math.max(60, Math.min(500, r)));
+      }
+      return;
+    }
+
+    // Shape Transform (Resize & Rotate)
+    if (shapeTransformRef.current) {
+      const { mode, handle, shapeId, startShape, startWorld, center } = shapeTransformRef.current;
+      if (mode === 'rotate') {
+        const angleRad = Math.atan2(world.y - center.y, world.x - center.x);
+        const deg = Math.round(((angleRad * 180) / Math.PI + 90 + 360) % 360);
+        crdtBridge.updateElement(shapeId, { angle: deg });
+      } else if (mode === 'resize' && handle) {
+        const dx = world.x - startWorld.x;
+        const dy = world.y - startWorld.y;
+        let newX = startShape.x;
+        let newY = startShape.y;
+        let newW = startShape.width;
+        let newH = startShape.height;
+
+        if (handle.includes('e')) newW = Math.max(10, Math.round(startShape.width + dx));
+        if (handle.includes('s')) newH = Math.max(10, Math.round(startShape.height + dy));
+        if (handle.includes('w')) {
+          const candW = startShape.width - dx;
+          if (candW >= 10) {
+            newW = Math.round(candW);
+            newX = Math.round(startShape.x + dx);
+          }
+        }
+        if (handle.includes('n')) {
+          const candH = startShape.height - dy;
+          if (candH >= 10) {
+            newH = Math.round(candH);
+            newY = Math.round(startShape.y + dy);
+          }
+        }
+        crdtBridge.updateElement(shapeId, { x: newX, y: newY, width: newW, height: newH });
+      }
       return;
     }
 
@@ -500,6 +707,9 @@ export const Canvas: React.FC = () => {
     }
     isPanningRef.current = false;
     isDraggingSelectedRef.current = false;
+    rulerDragRef.current = null;
+    protractorDragRef.current = null;
+    shapeTransformRef.current = null;
 
     // 1. Finalize Stroke
     if (activeStrokeRef.current) {
@@ -523,10 +733,12 @@ export const Canvas: React.FC = () => {
               width: shape.width,
               height: shape.height,
               strokeColor: stroke.color,
-              fillColor: 'transparent',
+              fillColor: shapeFillColor !== 'transparent' ? shapeFillColor : 'transparent',
+              fillStyle: shapeFillStyle,
               strokeWidth: stroke.size,
-              strokeStyle: 'solid',
-              roughness: 0, // crisp shape!
+              strokeStyle: shapeStrokeStyle,
+              roughness: shapeRoughness,
+              angle: 0,
               zIndex,
               createdAt: Date.now(),
               updatedAt: Date.now(),
@@ -650,10 +862,10 @@ export const Canvas: React.FC = () => {
   // Erase any element (strokes, shapes, notes, media, tables, equations, tags) touched by eraser
   const eraseElementAt = (world: Point) => {
     const eraserRadius = 24;
-    const nearby = spatialIndex.queryVisible(panX, panY, zoom, window.innerWidth, window.innerHeight);
+    const all = crdtBridge.getAllElements();
 
     const toDelete: string[] = [];
-    for (const el of nearby) {
+    for (const el of all) {
       const bounds = getElementBounds(el);
       if (
         world.x + eraserRadius >= bounds.minX &&
@@ -719,6 +931,7 @@ function getCursorStyle(tool: string, spacePressed: boolean): string {
   switch (tool) {
     case 'pen':
     case 'pencil':
+    case 'calligraphy':
       return 'crosshair';
     case 'highlighter':
       return 'crosshair';

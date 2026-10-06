@@ -18,6 +18,7 @@ export const InsertTab: React.FC = () => {
   const { setActiveTool, setSelectedIds } = useCanvasStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -138,62 +139,109 @@ export const InsertTab: React.FC = () => {
     }
   };
 
+  // Handle direct audio file upload (.mp3, .wav, .webm, .m4a)
+  const handleAudioFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setUploadStatus(`Uploading audio ${file.name}...`);
+      const result = await uploadFileResumable(file);
+      const id = `audio-${Date.now()}`;
+      const zIndex = crdtBridge.getHighestZIndex();
+
+      crdtBridge.addElement({
+        id,
+        type: 'audio',
+        x: 300,
+        y: 200,
+        width: 260,
+        height: 64,
+        assetId: result.assetId,
+        duration: 0,
+        fileName: result.fileName,
+        zIndex,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      setSelectedIds([id]);
+      setActiveTool('select');
+      setUploadStatus(null);
+    } catch (err: any) {
+      alert(`Audio upload failed: ${err.message}`);
+      setUploadStatus(null);
+    }
+  };
+
   // Audio Recording (In-browser MediaRecorder)
   const toggleAudioRecording = async () => {
     if (isRecording) {
       // Stop recording
       mediaRecorderRef.current?.stop();
       setIsRecording(false);
-    } else {
-      // Start recording
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
+      return;
+    }
 
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunksRef.current.push(event.data);
-          }
-        };
-
-        mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const audioFile = new File([audioBlob], `recording-${Date.now()}.webm`, { type: 'audio/webm' });
-
-          setUploadStatus('Saving voice recording...');
-          try {
-            const result = await uploadFileResumable(audioFile);
-            const id = `audio-${Date.now()}`;
-            const zIndex = crdtBridge.getHighestZIndex();
-
-            crdtBridge.addElement({
-              id,
-              type: 'audio',
-              x: 300,
-              y: 200,
-              width: 260,
-              height: 64,
-              assetId: result.assetId,
-              duration: 0,
-              fileName: result.fileName,
-              zIndex,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            });
-          } catch (err: any) {
-            alert(`Voice save failed: ${err.message}`);
-          }
-          setUploadStatus(null);
-          stream.getTracks().forEach((track) => track.stop());
-        };
-
-        mediaRecorder.start();
-        setIsRecording(true);
-      } catch (err: any) {
-        alert(`Microphone access failed: ${err.message}`);
+    // Check for Secure Context / navigator.mediaDevices availability
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      const proceed = confirm(
+        'Microphone recording is not available because the browser disables mic access over non-secure connections (e.g. HTTP over LAN IP).\n\n' +
+        'Would you like to upload an audio file (.mp3, .wav, .webm, .m4a) instead?'
+      );
+      if (proceed) {
+        audioInputRef.current?.click();
       }
+      return;
+    }
+
+    // Start recording
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioFile = new File([audioBlob], `recording-${Date.now()}.webm`, { type: 'audio/webm' });
+
+        setUploadStatus('Saving voice recording...');
+        try {
+          const result = await uploadFileResumable(audioFile);
+          const id = `audio-${Date.now()}`;
+          const zIndex = crdtBridge.getHighestZIndex();
+
+          crdtBridge.addElement({
+            id,
+            type: 'audio',
+            x: 300,
+            y: 200,
+            width: 260,
+            height: 64,
+            assetId: result.assetId,
+            duration: 0,
+            fileName: result.fileName,
+            zIndex,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          });
+        } catch (err: any) {
+          alert(`Voice save failed: ${err.message}`);
+        }
+        setUploadStatus(null);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err: any) {
+      alert(`Microphone access failed: ${err.message}`);
     }
   };
 
@@ -285,6 +333,32 @@ export const InsertTab: React.FC = () => {
         <Mic size={16} className={isRecording ? 'animate-ping' : ''} />
         {isRecording ? 'Stop Recording' : 'Record Audio'}
       </button>
+
+      {/* Audio File Upload */}
+      <button
+        onClick={() => audioInputRef.current?.click()}
+        title="Upload an audio file (.mp3, .wav, .webm, .m4a)"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '6px 12px',
+          border: '1px solid #cbd5e1',
+          borderRadius: '6px',
+          background: '#fff',
+          cursor: 'pointer',
+          fontWeight: 500,
+        }}
+      >
+        <Upload size={16} color="#2563EB" /> Audio File
+      </button>
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: 'none' }}
+        onChange={handleAudioFileUpload}
+      />
 
       {/* Equation Editor */}
       <button

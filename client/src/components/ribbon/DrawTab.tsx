@@ -16,6 +16,7 @@ import {
   Circle,
   Triangle,
   MoveVertical,
+  Feather,
 } from 'lucide-react';
 import { useCanvasStore } from '../../state/useCanvasStore.js';
 import { HIGHLIGHTER_COLORS, PEN_COLORS, ShapeType } from '@collabcanvas/shared';
@@ -34,6 +35,14 @@ export const DrawTab: React.FC = () => {
     toggleInkToShape,
     selectedShapeType,
     setSelectedShapeType,
+    shapeStrokeColor,
+    setShapeStrokeColor,
+    shapeFillColor,
+    setShapeFillColor,
+    shapeFillStyle,
+    setShapeFillStyle,
+    shapeStrokeWidth,
+    setShapeStrokeWidth,
     shapeStrokeStyle,
     setShapeStrokeStyle,
     shapeRoughness,
@@ -85,7 +94,26 @@ export const DrawTab: React.FC = () => {
         </button>
 
         <button
-          title="Pencil (Pressure sensitive texture)"
+          title="Calligraphy Brush (Tapered pressure stroke)"
+          onClick={() => setActiveTool('calligraphy')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '6px 12px',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontWeight: 500,
+            background: activeTool === 'calligraphy' ? '#2563EB' : 'transparent',
+            color: activeTool === 'calligraphy' ? '#fff' : 'inherit',
+          }}
+        >
+          <Feather size={16} /> Calligraphy
+        </button>
+
+        <button
+          title="Pencil (Textured graphite lead)"
           onClick={() => setActiveTool('pencil')}
           style={{
             display: 'flex',
@@ -181,7 +209,7 @@ export const DrawTab: React.FC = () => {
       </div>
 
       {/* Inking Palette */}
-      {(activeTool === 'pen' || activeTool === 'pencil') && (
+      {(activeTool === 'pen' || activeTool === 'pencil' || activeTool === 'calligraphy') && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div style={{ display: 'flex', gap: '3px' }}>
             {PEN_COLORS.slice(0, 6).map((c) => (
@@ -296,31 +324,79 @@ export const DrawTab: React.FC = () => {
               </button>
             ))}
 
-            <div style={{ gridColumn: 'span 3', borderTop: '1px solid #e2e8f0', paddingTop: '6px', display: 'flex', gap: '8px', fontSize: '11px' }}>
-              <label>
-                Style:
-                <select
-                  value={shapeStrokeStyle}
-                  onChange={(e) => setShapeStrokeStyle(e.target.value as any)}
-                  style={{ marginLeft: '4px' }}
-                >
-                  <option value="solid">Solid</option>
-                  <option value="dashed">Dashed</option>
-                  <option value="dotted">Dotted</option>
-                </select>
-              </label>
-              <label>
-                Roughness:
-                <select
-                  value={shapeRoughness}
-                  onChange={(e) => setShapeRoughness(Number(e.target.value))}
-                  style={{ marginLeft: '4px' }}
-                >
-                  <option value={0}>Crisp (0)</option>
-                  <option value={1}>Hand-drawn (1)</option>
-                  <option value={2}>Sketchy (2)</option>
-                </select>
-              </label>
+            <div style={{ gridColumn: 'span 3', borderTop: '1px solid #e2e8f0', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Stroke:
+                  <select
+                    value={shapeStrokeStyle}
+                    onChange={(e) => setShapeStrokeStyle(e.target.value as any)}
+                    style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                  >
+                    <option value="solid">Solid ───</option>
+                    <option value="dashed">Dashed ╌╌╌</option>
+                    <option value="dotted">Dotted ···</option>
+                  </select>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Width:
+                  <select
+                    value={shapeStrokeWidth}
+                    onChange={(e) => setShapeStrokeWidth(Number(e.target.value))}
+                    style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                  >
+                    <option value={1}>1px</option>
+                    <option value={2}>2px</option>
+                    <option value={4}>4px</option>
+                    <option value={6}>6px</option>
+                  </select>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Roughness:
+                  <select
+                    value={shapeRoughness}
+                    onChange={(e) => setShapeRoughness(Number(e.target.value))}
+                    style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                  >
+                    <option value={0}>Crisp (0)</option>
+                    <option value={1.2}>Hand-drawn (1)</option>
+                    <option value={2.5}>Sketchy (2)</option>
+                  </select>
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Fill Style:
+                  <select
+                    value={shapeFillStyle}
+                    onChange={(e) => setShapeFillStyle(e.target.value as any)}
+                    style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                  >
+                    <option value="solid">Solid Fill</option>
+                    <option value="hachure">Hachure Lines ///</option>
+                    <option value="cross-hatch">Cross-Hatch XXX</option>
+                    <option value="dots">Stippled Dots :::</option>
+                    <option value="zigzag">Zigzag ∿∿∿</option>
+                  </select>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Fill Color:
+                  <select
+                    value={shapeFillColor}
+                    onChange={(e) => setShapeFillColor(e.target.value)}
+                    style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                  >
+                    <option value="transparent">Transparent</option>
+                    <option value="#dbeafe">Light Blue</option>
+                    <option value="#fef08a">Light Yellow</option>
+                    <option value="#dcfce7">Light Green</option>
+                    <option value="#fce7f3">Light Pink</option>
+                    <option value="#ffedd5">Light Orange</option>
+                    <option value="#f1f5f9">Slate Gray</option>
+                  </select>
+                </label>
+              </div>
             </div>
           </div>
         )}

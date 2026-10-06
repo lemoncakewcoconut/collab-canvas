@@ -20,10 +20,14 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  RotateCw,
   Maximize2,
   Move,
   GripHorizontal,
+  Calculator,
+  BookOpen,
 } from 'lucide-react';
+import katex from 'katex';
 
 interface Props {
   elements: CanvasElement[];
@@ -224,6 +228,51 @@ const StickyNoteItem: React.FC<{ element: StickyNoteElement }> = ({ element }) =
           placeholder="Type note..."
         />
       </div>
+
+      {/* Corner Resize Handle */}
+      {isSelected && (
+        <div
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startW = element.width || 200;
+            const startH = element.height || 180;
+
+            const onPointerMove = (moveEv: PointerEvent) => {
+              const dx = (moveEv.clientX - startX) / zoom;
+              const dy = (moveEv.clientY - startY) / zoom;
+              const newW = Math.max(120, Math.round(startW + dx));
+              const newH = Math.max(100, Math.round(startH + dy));
+              crdtBridge.updateElement(element.id, { width: newW, height: newH });
+            };
+
+            const onPointerUp = () => {
+              window.removeEventListener('pointermove', onPointerMove);
+              window.removeEventListener('pointerup', onPointerUp);
+            };
+
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', onPointerUp);
+          }}
+          title="Drag to resize note"
+          style={{
+            position: 'absolute',
+            bottom: '2px',
+            right: '2px',
+            width: '12px',
+            height: '12px',
+            cursor: 'nwse-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: 0.6,
+          }}
+        >
+          <div style={{ width: '6px', height: '6px', borderBottom: '2px solid #000', borderRight: '2px solid #000' }} />
+        </div>
+      )}
     </div>
   );
 };
@@ -456,6 +505,47 @@ const RichTextItem: React.FC<{ element: TextElement }> = ({ element }) => {
           <div style={{ width: '4px', height: '24px', background: '#2563EB', borderRadius: '2px' }} />
         </div>
       )}
+
+      {/* Bottom-Right Corner Resize Handle */}
+      {isSelected && (
+        <div
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const startX = e.clientX;
+            const startW = element.width || 280;
+
+            const onPointerMove = (moveEv: PointerEvent) => {
+              const dx = (moveEv.clientX - startX) / zoom;
+              const newWidth = Math.max(140, Math.round(startW + dx));
+              crdtBridge.updateElement(element.id, { width: newWidth });
+            };
+
+            const onPointerUp = () => {
+              window.removeEventListener('pointermove', onPointerMove);
+              window.removeEventListener('pointerup', onPointerUp);
+            };
+
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', onPointerUp);
+          }}
+          title="Drag to resize note"
+          style={{
+            position: 'absolute',
+            bottom: '-5px',
+            right: '-5px',
+            width: '12px',
+            height: '12px',
+            cursor: 'nwse-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 15,
+          }}
+        >
+          <div style={{ width: '7px', height: '7px', background: '#2563EB', borderRadius: '1px' }} />
+        </div>
+      )}
     </div>
   );
 };
@@ -666,66 +756,374 @@ const TableItem: React.FC<{ element: TableElement }> = ({ element }) => {
           </button>
         </div>
       </div>
+
+      {/* Table Corner Resize Handle */}
+      {isSelected && (
+        <div
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startWidths = [...element.cellWidths];
+            const startHeights = [...element.cellHeights];
+            const totalStartW = startWidths.reduce((a, b) => a + b, 0);
+            const totalStartH = startHeights.reduce((a, b) => a + b, 0);
+
+            const onPointerMove = (moveEv: PointerEvent) => {
+              const dx = (moveEv.clientX - startX) / zoom;
+              const dy = (moveEv.clientY - startY) / zoom;
+              const scaleW = Math.max(0.4, (totalStartW + dx) / Math.max(1, totalStartW));
+              const scaleH = Math.max(0.4, (totalStartH + dy) / Math.max(1, totalStartH));
+
+              const newWidths = startWidths.map((w) => Math.max(40, Math.round(w * scaleW)));
+              const newHeights = startHeights.map((h) => Math.max(24, Math.round(h * scaleH)));
+              crdtBridge.updateElement(element.id, { cellWidths: newWidths, cellHeights: newHeights });
+            };
+
+            const onPointerUp = () => {
+              window.removeEventListener('pointermove', onPointerMove);
+              window.removeEventListener('pointerup', onPointerUp);
+            };
+
+            window.addEventListener('pointermove', onPointerMove);
+            window.addEventListener('pointerup', onPointerUp);
+          }}
+          title="Drag to resize table cells"
+          style={{
+            position: 'absolute',
+            bottom: '2px',
+            right: '2px',
+            width: '14px',
+            height: '14px',
+            cursor: 'nwse-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20,
+          }}
+        >
+          <div style={{ width: '8px', height: '8px', backgroundColor: '#2563EB', borderRadius: '2px' }} />
+        </div>
+      )}
     </div>
   );
 };
 
-// 4. Equation Item
+// Helper to evaluate basic mathematical / arithmetic LaTeX expressions
+function evaluateMathExpression(raw: string): string | null {
+  try {
+    let expr = raw
+      .replace(/\\cdot/g, '*')
+      .replace(/\\times/g, '*')
+      .replace(/\\div/g, '/')
+      .replace(/\\sqrt\{([^}]+)\}/g, 'Math.sqrt($1)')
+      .replace(/\\sin\(([^)]+)\)/g, 'Math.sin($1)')
+      .replace(/\\cos\(([^)]+)\)/g, 'Math.cos($1)')
+      .replace(/\\tan\(([^)]+)\)/g, 'Math.tan($1)')
+      .replace(/\\pi/g, 'Math.PI')
+      .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '(($1)/($2))')
+      .replace(/\^\{([^}]+)\}/g, '**($1)')
+      .replace(/\^(\d+)/g, '**$1')
+      .replace(/[{}]/g, '')
+      .replace(/=/g, '')
+      .trim();
+
+    // Whitelist safe characters
+    if (/^[0-9+\-*/().\s,Math.sqrtsincoatePI]+$/.test(expr)) {
+      const val = Function(`"use strict"; return (${expr});`)();
+      if (typeof val === 'number' && !isNaN(val)) {
+        return Number.isInteger(val) ? val.toString() : val.toFixed(4).replace(/\.?0+$/, '');
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// 4. Fully Functional LaTeX Equation Item with KaTeX Rendering & Math Solver
 const EquationItem: React.FC<{ element: EquationElement }> = ({ element }) => {
+  const { zoom, selectedIds, setSelectedIds } = useCanvasStore();
   const [editing, setEditing] = useState(false);
   const [latex, setLatex] = useState(element.latex);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const isSelected = selectedIds.includes(element.id);
+
+  // Sync latex when element updates
+  useEffect(() => {
+    setLatex(element.latex);
+  }, [element.latex]);
+
+  const FORMULA_TEMPLATES = [
+    { label: 'Quadratic Formula', code: 'x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}' },
+    { label: 'Pythagorean Theorem', code: 'a^2 + b^2 = c^2' },
+    { label: 'Calculus Integral', code: '\\int_{a}^{b} f(x) \\, dx = F(b) - F(a)' },
+    { label: 'Euler’s Identity', code: 'e^{i\\pi} + 1 = 0' },
+    { label: 'Circle Area', code: 'A = \\pi r^2' },
+    { label: 'Derivative', code: '\\frac{d}{dx}(x^n) = n x^{n-1}' },
+    { label: 'Arithmetic Calc', code: '25 \\times 4 + \\sqrt{144}' },
+  ];
+
+  const handleDragPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input')) return;
+    e.stopPropagation();
+    setSelectedIds([element.id]);
+    let lastX = e.clientX;
+    let lastY = e.clientY;
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      const dx = (moveEv.clientX - lastX) / zoom;
+      const dy = (moveEv.clientY - lastY) / zoom;
+      if (Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3) {
+        lastX = moveEv.clientX;
+        lastY = moveEv.clientY;
+        crdtBridge.shiftElements(dx, dy, [element.id]);
+      }
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
+
+  const handleSolve = () => {
+    const res = evaluateMathExpression(latex);
+    if (res !== null) {
+      crdtBridge.updateElement(element.id, { result: res });
+    } else {
+      alert(`Could not evaluate algebraic expression. Try an arithmetic formula like: 25 * 4 + \\sqrt{144}`);
+    }
+  };
+
+  let renderedHtml = '';
+  try {
+    renderedHtml = katex.renderToString(latex || 'f(x) = y', {
+      throwOnError: false,
+      displayMode: false,
+    });
+  } catch (err: any) {
+    renderedHtml = `<span>${latex}</span>`;
+  }
 
   return (
     <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={(e) => {
+        e.stopPropagation();
+        setSelectedIds([element.id]);
+      }}
       style={{
         background: '#ffffff',
-        border: '1px solid #e2e8f0',
+        border: isSelected ? '1px solid #2563EB' : '1px solid #cbd5e1',
         borderRadius: '6px',
-        padding: '6px 12px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+        boxShadow: isSelected
+          ? '0 0 0 2px #2563EB, 0 4px 6px -1px rgba(0,0,0,0.1)'
+          : '0 2px 4px rgba(0,0,0,0.05)',
         display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
+        flexDirection: 'column',
+        userSelect: 'none',
       }}
     >
-      {editing ? (
-        <input
-          autoFocus
-          value={latex}
-          onChange={(e) => setLatex(e.target.value)}
-          onBlur={() => {
-            setEditing(false);
-            crdtBridge.updateElement(element.id, { latex });
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              setEditing(false);
-              crdtBridge.updateElement(element.id, { latex });
-            }
-          }}
-          style={{
-            border: '1px solid #3b82f6',
-            borderRadius: '4px',
-            padding: '2px 6px',
-            fontSize: '14px',
-            fontFamily: 'monospace',
-          }}
-        />
-      ) : (
+      {/* Top Header & Toolbar */}
+      <div
+        onPointerDown={handleDragPointerDown}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '3px 8px',
+          background: isSelected ? '#2563EB' : '#f1f5f9',
+          color: isSelected ? '#ffffff' : '#475569',
+          borderTopLeftRadius: '5px',
+          borderTopRightRadius: '5px',
+          cursor: 'grab',
+          gap: '6px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <Move size={12} />
+          <span style={{ fontSize: '11px', fontWeight: 600 }}>Equation</span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {/* Templates button */}
+          <button
+            onClick={() => setShowTemplates(!showTemplates)}
+            title="Formula Templates"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: isSelected ? '#ffffff' : '#2563eb',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '2px',
+              fontSize: '11px',
+              padding: '2px 4px',
+              borderRadius: '3px',
+            }}
+          >
+            <BookOpen size={12} /> Templates
+          </button>
+
+          {/* Solve / Evaluate button */}
+          <button
+            onClick={handleSolve}
+            title="Evaluate expression"
+            style={{
+              background: isSelected ? '#ffffff' : '#2563eb',
+              border: 'none',
+              color: isSelected ? '#2563eb' : '#ffffff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '2px',
+              fontSize: '11px',
+              fontWeight: 600,
+              padding: '2px 6px',
+              borderRadius: '3px',
+            }}
+          >
+            <Calculator size={12} /> Calculate
+          </button>
+
+          {(isHovered || isSelected) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                crdtBridge.deleteElements([element.id]);
+              }}
+              title="Delete Equation"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: isSelected ? '#ffffff' : '#dc2626',
+                cursor: 'pointer',
+                padding: '1px',
+                display: 'flex',
+              }}
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Templates Dropdown Menu */}
+      {showTemplates && (
         <div
-          onClick={() => setEditing(true)}
           style={{
-            cursor: 'pointer',
-            fontFamily: 'serif',
-            fontSize: '17px',
-            color: '#1e293b',
-            letterSpacing: '0.5px',
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            marginTop: '4px',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            boxShadow: '0 10px 15px -3px rgba(0,0,0,0.15)',
+            zIndex: 100,
+            width: '260px',
+            padding: '6px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
           }}
-          title="Click to edit formula"
         >
-          {latex || 'Double click to enter LaTeX'}
+          <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', padding: '2px 4px' }}>
+            Choose Formula:
+          </span>
+          {FORMULA_TEMPLATES.map((tmpl) => (
+            <button
+              key={tmpl.label}
+              onClick={() => {
+                setLatex(tmpl.code);
+                setShowTemplates(false);
+                crdtBridge.updateElement(element.id, { latex: tmpl.code, result: undefined });
+              }}
+              style={{
+                textAlign: 'left',
+                fontSize: '12px',
+                padding: '4px 6px',
+                border: 'none',
+                borderRadius: '4px',
+                background: '#f8fafc',
+                cursor: 'pointer',
+                display: 'flex',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontWeight: 500 }}>{tmpl.label}</span>
+            </button>
+          ))}
         </div>
       )}
+
+      {/* Body: KaTeX render or editable input */}
+      <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {editing ? (
+          <input
+            autoFocus
+            value={latex}
+            onChange={(e) => setLatex(e.target.value)}
+            onBlur={() => {
+              setEditing(false);
+              crdtBridge.updateElement(element.id, { latex });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                setEditing(false);
+                crdtBridge.updateElement(element.id, { latex });
+              }
+            }}
+            style={{
+              border: '1px solid #3b82f6',
+              borderRadius: '4px',
+              padding: '4px 8px',
+              fontSize: '14px',
+              fontFamily: 'monospace',
+              width: '100%',
+              minWidth: '220px',
+            }}
+            placeholder="Type LaTeX e.g. x^2 + y^2 = r^2"
+          />
+        ) : (
+          <div
+            onClick={() => setEditing(true)}
+            title="Click to edit LaTeX formula"
+            style={{
+              cursor: 'pointer',
+              fontSize: '18px',
+              color: '#0f172a',
+              padding: '2px 4px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+            {element.result && (
+              <span
+                style={{
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  color: '#16a34a',
+                  background: '#dcfce7',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  marginLeft: '6px',
+                }}
+              >
+                = {element.result}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -886,10 +1284,57 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
     crdtBridge.updateElement(element.id, { width: w, height: h });
   };
 
+  const handleRotateBy = (delta: number) => {
+    const currentAngle = element.angle || 0;
+    const newAngle = ((currentAngle + delta) % 360 + 360) % 360;
+    crdtBridge.updateElement(element.id, { angle: newAngle });
+  };
+
+  const handleResetAngle = () => {
+    crdtBridge.updateElement(element.id, { angle: 0 });
+  };
+
   const handleDelete = () => {
     crdtBridge.deleteElements([element.id]);
     setSelectedIds([]);
   };
+
+  const handleRotateStart = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setSelectedIds([element.id]);
+    const parent = e.currentTarget.parentElement;
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      const dx = moveEv.clientX - centerX;
+      const dy = moveEv.clientY - centerY;
+      let deg = Math.round((Math.atan2(dy, dx) * 180) / Math.PI + 90);
+      deg = ((deg % 360) + 360) % 360;
+      if (moveEv.shiftKey) {
+        deg = Math.round(deg / 15) * 15;
+      }
+      crdtBridge.updateElement(element.id, { angle: deg });
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
+
+  const assetSrc =
+    element.assetId?.startsWith('data:') ||
+    element.assetId?.startsWith('blob:') ||
+    element.assetId?.startsWith('http')
+      ? element.assetId
+      : `/api/assets/${element.assetId}`;
 
   return (
     <div
@@ -903,6 +1348,8 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
       style={{
         width: `${localSize.width}px`,
         height: `${localSize.height}px`,
+        transform: `rotate(${element.angle || 0}deg)`,
+        transformOrigin: 'center center',
         boxShadow: isSelected
           ? '0 0 0 2px #2563EB, 0 12px 24px -4px rgba(0,0,0,0.2)'
           : isHovered
@@ -942,6 +1389,89 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
           <span style={{ fontSize: '11px', color: '#94a3b8', paddingRight: '4px', fontWeight: 500 }}>
             {Math.round(localSize.width)}×{Math.round(localSize.height)}
           </span>
+
+          {Boolean(element.angle) && (
+            <span style={{ fontSize: '11px', color: '#60a5fa', fontWeight: 600, paddingRight: '4px' }}>
+              {element.angle}°
+            </span>
+          )}
+
+          <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)', margin: '0 2px' }} />
+
+          {/* Orientation Rotation Controls */}
+          <button
+            onClick={() => handleRotateBy(-15)}
+            title="Rotate Left (-15°)"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#ffffff',
+              cursor: 'pointer',
+              padding: '3px 4px',
+              display: 'flex',
+              alignItems: 'center',
+              borderRadius: '4px',
+            }}
+          >
+            <RotateCcw size={13} />
+          </button>
+
+          <button
+            onClick={() => handleRotateBy(15)}
+            title="Rotate Right (+15°)"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#ffffff',
+              cursor: 'pointer',
+              padding: '3px 4px',
+              display: 'flex',
+              alignItems: 'center',
+              borderRadius: '4px',
+            }}
+          >
+            <RotateCw size={13} />
+          </button>
+
+          <button
+            onClick={() => handleRotateBy(90)}
+            title="Rotate 90° Clockwise"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#ffffff',
+              cursor: 'pointer',
+              padding: '3px 4px',
+              display: 'flex',
+              alignItems: 'center',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: 700,
+            }}
+          >
+            90°
+          </button>
+
+          {Boolean(element.angle) && (
+            <button
+              onClick={handleResetAngle}
+              title="Reset Rotation (0°)"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#60a5fa',
+                cursor: 'pointer',
+                padding: '3px 4px',
+                display: 'flex',
+                alignItems: 'center',
+                borderRadius: '4px',
+                fontSize: '11px',
+                fontWeight: 600,
+              }}
+            >
+              0°
+            </button>
+          )}
 
           <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.2)', margin: '0 2px' }} />
 
@@ -993,23 +1523,6 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
               borderRadius: '4px',
             }}
           >
-            <RotateCcw size={13} />
-          </button>
-
-          <button
-            onClick={() => handleZoomBy(2.0)}
-            title="Double Size (200%)"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#ffffff',
-              cursor: 'pointer',
-              padding: '3px 4px',
-              display: 'flex',
-              alignItems: 'center',
-              borderRadius: '4px',
-            }}
-          >
             <Maximize2 size={13} />
           </button>
 
@@ -1037,7 +1550,7 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
       {/* Image Content */}
       {element.mimeType?.startsWith('image/') ? (
         <img
-          src={`/api/assets/${element.assetId}`}
+          src={assetSrc}
           alt={element.fileName}
           onLoad={handleImageLoad}
           draggable={false}
@@ -1067,7 +1580,7 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
             {(element.fileSize / 1024).toFixed(1)} KB
           </span>
           <a
-            href={`/api/assets/${element.assetId}`}
+            href={assetSrc}
             download={element.fileName}
             style={{
               fontSize: '12px',
@@ -1081,6 +1594,44 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
             Download
           </a>
         </div>
+      )}
+
+      {/* Top Rotation Knob & Stem */}
+      {(isSelected || isHovered) && (
+        <>
+          <div
+            className="rotate-handle"
+            onPointerDown={handleRotateStart}
+            title="Drag to rotate picture (Hold Shift to snap 15°)"
+            style={{
+              position: 'absolute',
+              top: '-26px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '14px',
+              height: '14px',
+              backgroundColor: '#ffffff',
+              border: '2px solid #2563EB',
+              borderRadius: '50%',
+              cursor: 'grab',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              zIndex: 40,
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: '-14px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '1.5px',
+              height: '14px',
+              backgroundColor: '#2563EB',
+              pointerEvents: 'none',
+              zIndex: 35,
+            }}
+          />
+        </>
       )}
 
       {/* 4 Interactive Corner Handles & 2 Edge Handles (Visible when selected or hovered) */}
@@ -1215,6 +1766,13 @@ const MediaItem: React.FC<{ element: MediaElement }> = ({ element }) => {
 
 // 6. Audio Player Item (HTTP Range streaming)
 const AudioItem: React.FC<{ element: AudioElement }> = ({ element }) => {
+  const assetSrc =
+    element.assetId?.startsWith('data:') ||
+    element.assetId?.startsWith('blob:') ||
+    element.assetId?.startsWith('http')
+      ? element.assetId
+      : `/api/assets/${element.assetId}`;
+
   return (
     <div
       style={{
@@ -1229,15 +1787,58 @@ const AudioItem: React.FC<{ element: AudioElement }> = ({ element }) => {
       }}
     >
       <Volume2 size={16} color="#2563EB" />
-      <audio controls src={`/api/assets/${element.assetId}`} style={{ height: '32px' }} />
+      <audio controls src={assetSrc} style={{ height: '32px' }} />
     </div>
   );
 };
 
-// 7. Tag Item (Synced To-Do checkbox & category badge)
+// 7. Tag Item (Synced To-Do checkbox & movable category badge)
 const TagItem: React.FC<{ element: TagElement }> = ({ element }) => {
+  const { zoom, selectedIds, setSelectedIds } = useCanvasStore();
+  const [isHovered, setIsHovered] = useState(false);
+  const isSelected = selectedIds.includes(element.id);
+  const dragDistRef = useRef(0);
+
   const toggleCheck = () => {
     crdtBridge.updateElement(element.id, { checked: !element.checked });
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    crdtBridge.deleteElements([element.id]);
+    setSelectedIds([]);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.stopPropagation();
+    setSelectedIds([element.id]);
+    let lastX = e.clientX;
+    let lastY = e.clientY;
+    dragDistRef.current = 0;
+
+    const onPointerMove = (moveEv: PointerEvent) => {
+      const dx = (moveEv.clientX - lastX) / zoom;
+      const dy = (moveEv.clientY - lastY) / zoom;
+      dragDistRef.current += Math.hypot(moveEv.clientX - lastX, moveEv.clientY - lastY);
+      if (Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3) {
+        lastX = moveEv.clientX;
+        lastY = moveEv.clientY;
+        crdtBridge.shiftElements(dx, dy, [element.id]);
+      }
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      // If user simply clicked without dragging, toggle check for todo tag
+      if (dragDistRef.current < 4 && element.tagType === 'todo') {
+        toggleCheck();
+      }
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
   };
 
   const getTagColor = () => {
@@ -1252,37 +1853,78 @@ const TagItem: React.FC<{ element: TagElement }> = ({ element }) => {
 
   return (
     <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onPointerDown={handlePointerDown}
+      onClick={(e) => {
+        e.stopPropagation();
+        setSelectedIds([element.id]);
+      }}
       style={{
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
         gap: '6px',
         background: '#ffffff',
-        border: `1px solid ${getTagColor()}`,
+        border: `1.5px solid ${getTagColor()}`,
         borderRadius: '16px',
         padding: '3px 10px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-        cursor: 'pointer',
+        boxShadow: isSelected
+          ? `0 0 0 2px #2563eb, 0 4px 8px rgba(0,0,0,0.15)`
+          : '0 2px 4px rgba(0,0,0,0.08)',
+        cursor: 'grab',
+        userSelect: 'none',
+        position: 'relative',
+        transition: 'box-shadow 0.15s ease',
       }}
-      onClick={element.tagType === 'todo' ? toggleCheck : undefined}
     >
+      <GripHorizontal size={11} color={getTagColor()} style={{ opacity: 0.6 }} />
+
       {element.tagType === 'todo' ? (
-        element.checked ? (
-          <CheckSquare size={14} color="#16a34a" />
-        ) : (
-          <Square size={14} color="#64748b" />
-        )
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleCheck();
+          }}
+          style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+        >
+          {element.checked ? (
+            <CheckSquare size={14} color="#16a34a" />
+          ) : (
+            <Square size={14} color="#64748b" />
+          )}
+        </span>
       ) : null}
 
       <span
         style={{
           fontSize: '12px',
-          fontWeight: 500,
+          fontWeight: 600,
           color: '#1e293b',
           textDecoration: element.checked ? 'line-through' : 'none',
+          whiteSpace: 'nowrap',
         }}
       >
         {element.label}
       </span>
+
+      {(isHovered || isSelected) && (
+        <button
+          onClick={handleDelete}
+          title="Delete Tag"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            color: '#dc2626',
+            padding: '1px',
+            marginLeft: '2px',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          <Trash2 size={12} />
+        </button>
+      )}
     </div>
   );
 };

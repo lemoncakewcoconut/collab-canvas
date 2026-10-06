@@ -28,34 +28,39 @@ export function createAssetsRouter(): Router {
     }
   });
 
-  // 2. Upload chunk part (raw binary stream)
-  router.put('/uploads/:uploadId/:partIndex', (req: Request, res: Response) => {
-    const uploadId = req.params.uploadId as string;
-    const partIndex = req.params.partIndex as string;
-    const idx = parseInt(partIndex, 10);
-    if (isNaN(idx) || idx < 0) {
-      return res.status(400).json({ error: 'Invalid partIndex' });
-    }
+  // 2. Upload chunk part (raw binary stream or express.raw Buffer)
+  router.put(
+    '/uploads/:uploadId/:partIndex',
+    (req: Request, res: Response, next) => {
+      // If express.raw didn't run, handle raw stream
+      if (Buffer.isBuffer(req.body)) {
+        return next();
+      }
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        req.body = Buffer.concat(chunks);
+        next();
+      });
+      req.on('error', (err) => res.status(500).json({ error: err.message }));
+    },
+    (req: Request, res: Response) => {
+      const uploadId = req.params.uploadId as string;
+      const partIndex = req.params.partIndex as string;
+      const idx = parseInt(partIndex, 10);
+      if (isNaN(idx) || idx < 0) {
+        return res.status(400).json({ error: 'Invalid partIndex' });
+      }
 
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-
-    req.on('end', () => {
       try {
-        const fullBuffer = Buffer.concat(chunks);
+        const fullBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
         saveUploadPart(uploadId, idx, fullBuffer);
         res.json({ partIndex: idx, received: true });
       } catch (err: any) {
         res.status(400).json({ error: err.message });
       }
-    });
-
-    req.on('error', (err) => {
-      res.status(500).json({ error: err.message });
-    });
-  });
+    }
+  );
 
   // 3. Query upload status for resumable uploads
   router.get('/uploads/:uploadId', (req, res) => {
